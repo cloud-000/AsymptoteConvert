@@ -3,11 +3,24 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Document</title>
+    <title>exca</title>
+    <style>
+        #textDisplayer {
+            position: absolute;
+            left: 20px;
+            top: 40px;
+            border: 2px solid black; 
+            width: 200px;
+            max-height: 50px;
+            overflow-y: scroll;
+
+        }
+    </style>
 </head>
 <body style="display: flex; flex-direction: column;">
 <input id="bruh">
 <canvas id="canvas" width="1000" height="1000"></canvas>
+<div id="textDisplayer"></div>
 <script>
 
 function polygon(context, color, width, linePoints, dx, dy, offset, canvas_unit) {
@@ -60,7 +73,7 @@ function rotate(radians, cx, cy, x, y, yIsUp=1) {
     let dy = y - cy
     let cos = Math.cos(radians)
     let sin = Math.sin(radians)
-    return [cx + dx * cos - dy * sin, cy + yIsUp * (dx * sin + dy * cos)]
+    return [Math.round(cx + dx * cos - dy * sin), Math.round(cy + yIsUp * (dx * sin + dy * cos))]
 }
 
 class ExcalidrawToAsy {
@@ -72,7 +85,8 @@ class ExcalidrawToAsy {
     }
 
     init() {
-        this.addType("rectangle", (e) => {
+        this.addType("rectangle", 
+        (e) => {
             this.default(e)
             console.log(this.dummy)
             this.dummy.coords = [
@@ -92,26 +106,35 @@ class ExcalidrawToAsy {
             if (o.roundness) {
                 // TODO
             } else {
-                this.dummy += `draw(${path}, ${this.getPen(o)});\n`
+                if (this.closed) {
+                    this.dummy += `filldraw(${path}, ${o.backgroundColor}, ${this.getPen(o)});\n`
+                } else {
+                    this.dummy += `draw(${path}, ${this.getPen(o)});`
+                }
                 //  this.dummy += `draw(${path2}, black);\n`
             }
             path = null
         },
         (ctx, o) => {
-                ctx.strokeColor = "red"
-                ctx.fillStyle = "red"
-                // ctx.strokeRect(o.x, o.y, o.width, o.height)
-                polygon(ctx, "green", 2, o.coords, 0, 0, [0, 0], 1) 
-                // ctx.fillRect(o.cx - 10, o.cy - 10, 20, 20)
-            }
-        )
-        this.addType("ellipse", (e) => {
+            polygon(ctx, o.trueColors.background, 0, o.coords, 0, 0, [0, 0], 1) 
+            polygon(ctx, o.trueColors.stroke, o.strokeWidth, o.coords, 0, 0, [0, 0], 1) 
+        })
+
+        this.addType("ellipse", 
+        (e) => {
             this.default(e)
         },
         (o) => {
             o.cy *= -1
             o.angle *= -1
-            this.dummy = `draw(shift(${o.cx}, ${o.cy}) * rotate(${Math.floor(o.angle*180/Math.PI)}) * ellipse((0, 0), ${o.width/2}, ${o.height/2}), ${this.getPen(o)});`
+            let path = `shift(${o.cx}, ${o.cy}) * rotate(${Math.floor(o.angle*180/Math.PI)}) * ellipse((0, 0), ${o.width/2}, ${o.height/2})`
+            
+            if (o.closed) {
+                this.dummy = `filldraw(${path}, ${o.backgroundColor}, ${this.getPen(o)});`
+            } else {
+                this.dummy = `draw(${path}, ${this.getPen(o)});`
+            }
+            this.dummy += "\n"
             // this.dummy += `\ndot((${o.cx}, ${o.cy})); \n`
             o.cy *= -1
             o.angle *= -1
@@ -119,38 +142,88 @@ class ExcalidrawToAsy {
         (ctx, e) => {
             ctx.beginPath()
             ctx.ellipse(e.cx, e.cy, e.width/2, e.height/2, e.angle, 0, 2 * Math.PI)
+            ctx.fill()
             ctx.stroke()
             ctx.closePath()
-        }
-        )
+        })
+
         this.addType("line", (e) => {
             this.default(e)
             this.dummy.cy = this.dummy.y - this.dummy.height/2
             this.dummy.points = Array.from(e.points, x => rotate(this.dummy.angle, this.dummy.width/2, -this.dummy.height/2, x[0], x[1]) )
         }, 
         (o) => {
-            // let testy = o.points.reduce((total, coords) => {return total + `(${Math.round(coords[0] + o.x)}, ${-Math.round(coords[1] + o.y)})--` })
-            // testy = testy.substring(3, testy.length) + "cycle"
             let testy = o.points.map(pt => `(${Math.round(pt[0] + o.x)}, ${-Math.round(pt[1] + o.y)})`).join("--");
-            this.dummy = `draw(${testy}, ${this.getPen(o)});\n`
+            if (o.closed) {
+                this.dummy = `filldraw(${testy}--cycle, ${o.backgroundColor}, ${this.getPen(o)});\n`
+            } else {
+                this.dummy = `draw(${testy}, ${this.getPen(o)});\n`
+            }
         },
         (ctx, e) => {
             // x, y bottom left
-            polygon(ctx, e.strokeColor, e.strokeWidth, e.points, 0, 0, [e.x, e.y], 1)
-            // ctx.fillRect(e.cx, e.cy, 10, 10)
-            // ctx.strokeRect(e.x, e.y - e.height, e.width, e.height)
-        }
+            polygon(ctx, e.trueColors.background, 0, e.points, 0, 0, [e.x, e.y], 1)
+            
+            polygon(ctx, e.trueColors.stroke, e.strokeWidth, e.points, 0, 0, [e.x, e.y], 1)
+        })
+
+        this.addType("freedraw", 
+            (e) => {
+                // e.strokeColor = e.backgroundColor
+                e.backgroundColor = "transparent"
+                e.strokeStyle = "solid"
+                this.types["line"].parse(e)
+                this.dummy.strokeWidth += 4
+            },
+            (o) => {
+                let testy = o.points.map(pt => `(${Math.round(pt[0] + o.x)}, ${-Math.round(pt[1] + o.y)})`).join("..");
+                this.dummy = `draw(${testy}, ${this.getPen(o)});\n`
+            },
+            (ctx, e) => {
+
+            }
+        )
+
+        this.addType("text",
+            (e) => {
+                this.default(e)
+                this.dummy.text = e.text
+            },
+            (o) => {
+                this.dummy = `label("${o.text}"*rotate(${Math.round(o.angle * 180/Math.PI)}), (${o.x}, ${-o.y}), N, ${this.getPen(o)});\n`
+            },
+            (ctx, e) => {
+                ctx.fillText(e.text, e.x, e.y)
+            }
         )
     }
 
-    getPen(o) {return `${o.strokeColor}+linewidth(${o.strokeWidth})${(o.strokeStyle) ? "+Dashed" : ""}`}
+    getPen(o) {return `${o.strokeColor}+linewidth(${o.strokeWidth})+${(o.strokeStyle)}`}
+
+    setCanvasPen(o, ctx) {
+        ctx.lineWidth = o.strokeWidth
+        ctx.fillStyle = o.trueColors.background
+        ctx.strokeStyle = o.trueColors.stroke
+        if (o.strokeStyle === "dashed") {
+            ctx.setLineDash([10, 10])
+        } else {
+            ctx.setLineDash([])
+        }
+    }
 
     default(e) {
         console.log(e)
         this.dummy.type = e.type
         this.dummy.strokeColor = hexToRgb(e.strokeColor)
         this.dummy.strokeWidth = e.strokeWidth
-        this.dummy.strokeStyle = (e.strokeStyle === "dashed")
+        this.dummy.strokeStyle = e.strokeStyle
+        this.dummy.fillStyle = e.fillStyle
+        this.dummy.closed = !(e.backgroundColor === "transparent")
+        this.dummy.backgroundColor = hexToRgb(e.backgroundColor)
+        if (!this.dummy.closed) {
+            this.dummy.backgroundColor += "+opacity(0.0)"
+        }
+        this.dummy.trueColors = {stroke: e.strokeColor, background: e.backgroundColor}
         this.dummy.x = Math.round(e.x)
         this.dummy.y = Math.round(e.y)
         this.dummy.width = Math.round(e.width)
@@ -192,6 +265,7 @@ class ExcalidrawToAsy {
 
     draw(ctx) {
         this.elements.forEach(e => {
+            this.setCanvasPen(e, ctx)
             this.types[e.type].canvasDraw(ctx, e)
         })
     }
@@ -210,8 +284,8 @@ function test () {
         parser.toAsymptote()
         console.log(parser.text)
         parser.draw(context)
+        textDisplayer.textContent = parser.text
     }
-
 
 }
 
