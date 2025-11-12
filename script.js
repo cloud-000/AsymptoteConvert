@@ -65,6 +65,10 @@ function rotate(radians, cx, cy, x, y, yIsUp=1) {
 }
 
 class ExcalidrawToAsy {
+    static ARROW = {
+        "triangle": "ArcArrow(size=20)",
+        "arrow": "Arrow(TeXHead, size=10)" // Hook Head?
+    }
     constructor() {
         this.elements = []
         this.dummy = null
@@ -161,7 +165,37 @@ class ExcalidrawToAsy {
             // ctx.fillRect(e.x + e.sus.x + e.sus.width/2, e.y + e.sus.y + e.sus.height/2, 10, 10)
 
         })
+        this.addType("arrow", 
+            (e) => {
+                this.types["line"].parse(e)
+                // Arrow, HookHead, TexHead
+                this.dummy.arrowheads = [e.startArrowhead, e.endArrowhead]
+                for (let i = 0; i < this.dummy.arrowheads.length; i++) {
+                    if (this.dummy.arrowheads[i]) {
+                        this.dummy.arrowheads[i] = ExcalidrawToAsy.ARROW[this.dummy.arrowheads[i]]
+                    }
+                }
+                console.log(this.dummy.arrowheads)
+            },
+            (o) => {
+                let pathLeft, pathRight;
 
+                if (o.points.length > 2) {
+                    pathRight = o.points.slice(1, o.points.length).map(pt => `(${Math.round(pt[0] + o.x)}, ${-Math.round(pt[1] + o.y)})`).join("--");
+                    pathLeft = o.points.slice(0, 2).map(pt => `(${Math.round(pt[0] + o.x)}, ${-Math.round(pt[1] + o.y)})`).join("--");
+                } else { // ie o.points.length == 2
+                    let midpoint = [0.5*(o.points[0][0] + o.points[1][0]) + o.x, -0.5*(o.points[0][1] + o.points[1][1]) - o.y]
+                    pathLeft = `(${midpoint[0]}, ${midpoint[1]})--(${o.points[0][1] + o.x}, ${-o.points[0][1]-o.y})`
+                    pathRight = `(${midpoint[0]}, ${midpoint[1]})--(${o.points[1][0] + o.x}, ${- o.points[1][1] - o.y})`
+                }
+                this.dummy = `draw(${pathRight}, ${this.getPen(o)}${(o.arrowheads[1] == null) ? "" : (", arrow="+o.arrowheads[1]) });\n`
+                this.dummy += `draw(${pathLeft}, ${this.getPen(o)}${(o.arrowheads[0] == null) ? "" : (", arrow="+o.arrowheads[0]) });\n`
+                // this.dummy = `draw(${testy}, ${this.getPen(o)}, arrow=${o.arrowheads[1]});\n`
+            },
+            (ctx, e) => {
+
+            }
+        )
         this.addType("freedraw", 
             (e) => {
                 // e.strokeColor = e.backgroundColor
@@ -223,6 +257,9 @@ class ExcalidrawToAsy {
         this.dummy.backgroundColor = hexToRgb(e.backgroundColor)
         if (!this.dummy.closed) {
             this.dummy.backgroundColor += "+opacity(0.0)"
+        }
+        if (e.strokeColor === "transparent") {
+            this.dummy.strokeWidth = 0
         }
         this.dummy.trueColors = {stroke: e.strokeColor, background: e.backgroundColor}
         this.dummy.x = Math.round(e.x)
