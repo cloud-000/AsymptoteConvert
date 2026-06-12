@@ -3,24 +3,110 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>exca</title>
+    <title>Excalidraw to Asymptote</title>
     <style>
-        #textDisplayer {
-            position: absolute;
-            left: 20px;
-            top: 40px;
-            border: 2px solid black; 
-            width: 200px;
-            max-height: 50px;
-            overflow-y: scroll;
+        body {
+            display: flex;
+            flex-direction: column;
+            margin: 0;
+            padding: 0;
+            font-family: Arial, sans-serif;
+            height: 100vh;
+        }
 
+        header {
+            background-color: #333;
+            color: white;
+            padding: 10px 20px;
+            text-align: center;
+        }
+
+        .container {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+        }
+
+        aside {
+            width: 300px;
+            background-color: #f4f4f4;
+            padding: 20px;
+            border-right: 1px solid #ccc;
+            display: flex;
+            flex-direction: column;
+            box-sizing: border-box;
+        }
+
+        aside label {
+            font-weight: bold;
+            margin-top: 10px;
+            margin-bottom: 5px;
+        }
+
+        aside textarea {
+            width: 100%;
+            flex: 1;
+            margin-bottom: 10px;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            resize: none;
+            box-sizing: border-box;
+            font-family: monospace;
+        }
+
+        aside button {
+            padding: 10px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+
+        aside button:hover {
+            background-color: #0056b3;
+        }
+
+        main {
+            flex: 1;
+            padding: 20px;
+            overflow: auto;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background-color: #eaeaea;
+        }
+
+        canvas {
+            background-color: white;
+            box-shadow: 0px 0px 10px rgba(0, 0, 0, 0.1);
         }
     </style>
 </head>
-<body style="display: flex; flex-direction: column;">
-<input id="bruh">
-<canvas id="canvas" width="1000" height="1000"></canvas>
-<div id="textDisplayer"></div>
+<body>
+
+<header>
+    <h1>Excalidraw to Asymptote Converter</h1>
+</header>
+
+<div class="container">
+    <aside>
+        <label for="jsonInput">Excalidraw JSON Input:</label>
+        <textarea id="jsonInput" placeholder="Paste Excalidraw JSON here..."></textarea>
+
+        <label for="asyOutput">Asymptote Output:</label>
+        <textarea id="asyOutput" readonly placeholder="Output will appear here..."></textarea>
+
+        <button id="copyBtn">Copy to Clipboard</button>
+    </aside>
+
+    <main>
+        <canvas id="canvas" width="1000" height="1000"></canvas>
+    </main>
+</div>
+
 <script src="script.js"></script>
 </body>
 </html>

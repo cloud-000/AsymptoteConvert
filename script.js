@@ -310,21 +310,55 @@ class ExcalidrawToAsy {
 }
 
 function test () {
-    let context = canvas.getContext("2d")
+    const canvasEl = document.getElementById("canvas")
+    const jsonInput = document.getElementById("jsonInput")
+    const asyOutput = document.getElementById("asyOutput")
+    const copyBtn = document.getElementById("copyBtn")
+
+    let context = canvasEl.getContext("2d")
     let parser = new ExcalidrawToAsy()
     parser.init()
-    bruh.onchange = () => {
-        if (bruh.value.trim() === "") {return;}
-        parser.text = ""
-        parser.elements = []
-        parser.parse(JSON.parse(bruh.value))
-        console.log(parser.elements)
-        parser.toAsymptote()
-        console.log(parser.text)
-        parser.draw(context)
-        textDisplayer.textContent = parser.text
+
+    jsonInput.oninput = () => {
+        if (jsonInput.value.trim() === "") {
+            asyOutput.value = "";
+            context.clearRect(0, 0, canvasEl.width, canvasEl.height);
+            return;
+        }
+        try {
+            parser.text = ""
+            parser.elements = []
+            let parsedData = JSON.parse(jsonInput.value)
+            if (parsedData.type === "excalidraw") {
+                parser.parse(parsedData)
+            } else {
+                parser.parse({elements: [parsedData]})
+            }
+
+            parser.toAsymptote()
+
+            // clear canvas before drawing
+            context.clearRect(0, 0, canvasEl.width, canvasEl.height);
+            parser.draw(context)
+            asyOutput.value = parser.text
+        } catch (e) {
+            console.error("Invalid JSON or error parsing:", e)
+        }
     }
 
+    copyBtn.onclick = () => {
+        if (asyOutput.value) {
+            navigator.clipboard.writeText(asyOutput.value).then(() => {
+                const originalText = copyBtn.innerText;
+                copyBtn.innerText = "Copied!";
+                setTimeout(() => {
+                    copyBtn.innerText = originalText;
+                }, 2000);
+            }).catch(err => {
+                console.error("Failed to copy text: ", err);
+            });
+        }
+    }
 }
 
 test()
