@@ -1,330 +1,403 @@
-function polygon(context, color, width, linePoints, dx, dy, offset, canvas_unit) {
-    context.fillStyle = color;
-    context.strokeStyle = color;
-    context.beginPath();
-    context.moveTo((linePoints[0][0]+ dx +offset[0])*canvas_unit, (linePoints[0][1]+dy+offset[1])*canvas_unit)
-    for (let i = 1; i < linePoints.length; ++i) {
-        context.lineTo((linePoints[i][0] + dx + offset[0])*canvas_unit, (linePoints[i][1] + dy + offset[1])*canvas_unit)
-    }
-    if (width > 0) {
-        context.lineTo((linePoints[0][0] + dx + offset[0])*canvas_unit, (linePoints[0][1] + dy + offset[1])*canvas_unit)
-        context.lineWidth = width;
-        context.stroke();
-    } else {
-        context.fill();
-    }
+import { convertExcalidraw, ExcalidrawParseError } from "./parser.js";
+import { CanvasRenderer } from "./renderer.js";
+import { SAMPLE_DATA } from "./sample-data.js";
+
+const byId = (id) => document.getElementById(id);
+
+const ui = {
+    source: byId("source-input"),
+    sourceState: byId("source-state"),
+    sourceCount: byId("source-count"),
+    sourceHint: byId("source-hint"),
+    convert: byId("convert-button"),
+    clearSource: byId("clear-source"),
+    loadSample: byId("load-sample"),
+    copy: byId("copy-code"),
+    clearLogs: byId("clear-logs"),
+    expandAll: byId("expand-all"),
+    collapseAll: byId("collapse-all"),
+    canvas: byId("preview-canvas"),
+    canvasEmpty: byId("canvas-empty"),
+    previewPill: byId("preview-pill"),
+    outputCode: byId("output-code"),
+    outputMeta: byId("output-meta"),
+    logList: byId("log-list"),
+    logEmpty: byId("log-empty"),
+    logCount: byId("log-count"),
+    shortcut: byId("shortcut-hint"),
+};
+
+const state = {
+    lastResult: null,
+    logs: [],
+    logSequence: 0,
+    resizeTimer: null,
+};
+
+let renderer;
+try {
+    renderer = new CanvasRenderer(ui.canvas);
+} catch (error) {
+    // The parser and output remain useful even when canvas support is missing.
+    setStatus("error", "Preview unavailable");
+    setPreviewPill("Canvas unavailable", "error");
+    addLog(
+        "error",
+        "The browser could not create a 2D canvas context.",
+        error.message,
+    );
 }
 
-function  updateBoundingRect(linePoints) {
-    let max = {width: Number.MIN_VALUE, height: Number.MIN_VALUE}
-    let min = {width: Number.MAX_VALUE, height: Number.MAX_VALUE}
-    for (let i = 0; i < linePoints.length; ++i) {
-        max.width = Math.max(max.width, linePoints[i][0]);
-        max.height = Math.max(max.height, linePoints[i][1]);
-        min.width = Math.min(min.width, linePoints[i][0]);
-        min.height = Math.min(min.height, linePoints[i][1]);
-    }
-    return {x:  Math.round(min.width), y: Math.round(min.height), width: Math.round(max.width-min.width), height: Math.round(max.height-min.height)}
-}
-    
-
-function toFixed(num, fixed) {
-    fixed = fixed || 0;
-    fixed = Math.pow(10, fixed);
-    return Math.floor(num * fixed) / fixed;
+function setStatus(status, message) {
+    ui.sourceState.className = `input-state is-${status}`;
+    ui.sourceState.replaceChildren(
+        Object.assign(document.createElement("span"), {
+            className: "state-dot",
+        }),
+        document.createTextNode(message),
+    );
 }
 
-function hexToRgb(hex, normalize=true) {
-    // Remove leading '#' if present
-    hex = hex.toString().replace(/^#/, '');
-
-    // Handle shorthand hex (e.g., #fff)
-    if (hex.length === 3) {
-        hex = hex.split('').map(c => c + c).join('');
-    }
-
-    const num = parseInt(hex, 16);
-    let r = (num >> 16) & 255;
-    let g = (num >> 8) & 255;
-    let b = num & 255;
-    if (normalize) {
-        r = toFixed(r/255, 2)
-        g = toFixed(g/255, 2)
-        b = toFixed(b/255, 2)
-    }
-
-    return `rgb(${r}, ${g}, ${b})`
+function setPreviewPill(message, status = "") {
+    ui.previewPill.textContent = message;
+    ui.previewPill.className = `result-pill${status ? ` is-${status}` : ""}`;
 }
 
-function rotate(radians, cx, cy, x, y, yIsUp=1) {
-    let dx = x - cx 
-    let dy = y - cy
-    let cos = Math.cos(radians)
-    let sin = Math.sin(radians)
-    return [Math.round(cx + dx * cos - dy * sin), Math.round(cy + yIsUp * (dx * sin + dy * cos))]
+function setOutputMeta(message) {
+    ui.outputMeta.textContent = message;
 }
 
-class ExcalidrawToAsy {
-    static ARROW = {
-        "triangle": "ArcArrow(size=20)",
-        "arrow": "Arrow(TeXHead, size=10)" // Hook Head?
-    }
-    constructor() {
-        this.elements = []
-        this.dummy = null
-        this.types = {}
-        this.text = ""
-    }
+function formatCharacterCount(value) {
+    return `${value.toLocaleString()} character${value === 1 ? "" : "s"}`;
+}
 
-    init() {
-        this.addType("rectangle", 
-        (e) => {
-            this.default(e)
-            console.log(this.dummy)
-            this.dummy.coords = [
-                rotate(this.dummy.angle, this.dummy.cx, this.dummy.cy, this.dummy.x, this.dummy.y),
-                rotate(this.dummy.angle, this.dummy.cx, this.dummy.cy, this.dummy.x + this.dummy.width, this.dummy.y),
-                rotate(this.dummy.angle, this.dummy.cx, this.dummy.cy, this.dummy.x + this.dummy.width, this.dummy.y + this.dummy.height),
-                rotate(this.dummy.angle, this.dummy.cx, this.dummy.cy, this.dummy.x, this.dummy.y + this.dummy.height)
-            ]
-        }, 
-        (o) => {
-            o.height *= - 1
-            o.y *= -1
-            // let path2 = `(${o.x}, ${o.y})--(${o.x + o.width}, ${o.y})--(${o.x + o.width}, ${o.y + o.height})--(${o.x}, ${o.y + o.height})--cycle`
-            let path = `(${o.coords[0][0]}, ${-o.coords[0][1]})--(${o.coords[1][0]}, ${-o.coords[1][1]})--(${o.coords[2][0]}, ${-o.coords[2][1]})--(${o.coords[3][0]}, ${-o.coords[3][1]})--cycle` 
-            o.y *= -1
-            o.height *= - 1
-            if (o.roundness) {
-                // TODO
-            } else {
-                if (this.closed) {
-                    this.dummy += `filldraw(${path}, ${o.backgroundColor}, ${this.getPen(o)});\n`
-                } else {
-                    this.dummy += `draw(${path}, ${this.getPen(o)});`
-                }
-                //  this.dummy += `draw(${path2}, black);\n`
-            }
-            path = null
-        },
-        (ctx, o) => {
-            polygon(ctx, o.trueColors.background, 0, o.coords, 0, 0, [0, 0], 1) 
-            polygon(ctx, o.trueColors.stroke, o.strokeWidth, o.coords, 0, 0, [0, 0], 1) 
-        })
+function formatLineCount(value) {
+    return `${value} line${value === 1 ? "" : "s"}`;
+}
 
-        this.addType("ellipse", 
-        (e) => {
-            this.default(e)
-        },
-        (o) => {
-            o.cy *= -1
-            o.angle *= -1
-            let path = `shift(${o.cx}, ${o.cy}) * rotate(${Math.floor(o.angle*180/Math.PI)}) * ellipse((0, 0), ${o.width/2}, ${o.height/2})`
-            
-            if (o.closed) {
-                this.dummy = `filldraw(${path}, ${o.backgroundColor}, ${this.getPen(o)});`
-            } else {
-                this.dummy = `draw(${path}, ${this.getPen(o)});`
-            }
-            this.dummy += "\n"
-            // this.dummy += `\ndot((${o.cx}, ${o.cy})); \n`
-            o.cy *= -1
-            o.angle *= -1
-        },
-        (ctx, e) => {
-            ctx.beginPath()
-            ctx.ellipse(e.cx, e.cy, e.width/2, e.height/2, e.angle, 0, 2 * Math.PI)
-            ctx.fill()
-            ctx.stroke()
-            ctx.closePath()
-        })
+function formatTime(date) {
+    return new Intl.DateTimeFormat(undefined, {
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+    }).format(date);
+}
 
-        this.addType("line", (e) => {
-            this.default(e)
-            this.dummy.cy = this.dummy.y - this.dummy.height/2
-            // this.dummy.points = Array.from(e.points, x => rotate(this.dummy.angle, this.dummy.width/2, -this.dummy.height/2, x[0], x[1]) )
-            this.dummy.sus = updateBoundingRect(e.points)
-            this.dummy.points = Array.from(e.points, x => rotate(this.dummy.angle, this.dummy.sus.x + this.dummy.sus.width/2, this.dummy.sus.y + this.dummy.sus.height/2, x[0], x[1]) )
-        }, 
-        (o) => {
-            let testy = o.points.map(pt => `(${Math.round(pt[0] + o.x)}, ${-Math.round(pt[1] + o.y)})`).join("--");
-            if (o.closed) {
-                this.dummy = `filldraw(${testy}--cycle, ${o.backgroundColor}, ${this.getPen(o)});\n`
-            } else {
-                this.dummy = `draw(${testy}, ${this.getPen(o)});\n`
-            }
-            // this.dummy += `dot((${o.x}, ${-o.y}));\n`
-        },
-        (ctx, e) => {
-            // x, y bottom left
-            polygon(ctx, e.trueColors.background, 0, e.points, 0, 0, [e.x, e.y], 1)
-            
-            polygon(ctx, e.trueColors.stroke, e.strokeWidth, e.points, 0, 0, [e.x, e.y], 1)
+function renderLogs() {
+    ui.logList.replaceChildren();
+    ui.logCount.textContent = `${state.logs.length} event${state.logs.length === 1 ? "" : "s"}`;
 
-            // ctx.strokeRect(e.sus.x + e.x, e.sus.y + e.y, e.sus.width, e.sus.height)
-            // ctx.fillRect(e.x + e.sus.x + e.sus.width/2, e.y + e.sus.y + e.sus.height/2, 10, 10)
-
-        })
-        this.addType("arrow", 
-            (e) => {
-                this.types["line"].parse(e)
-                // Arrow, HookHead, TexHead
-                this.dummy.arrowheads = [e.startArrowhead, e.endArrowhead]
-                for (let i = 0; i < this.dummy.arrowheads.length; i++) {
-                    if (this.dummy.arrowheads[i]) {
-                        this.dummy.arrowheads[i] = ExcalidrawToAsy.ARROW[this.dummy.arrowheads[i]]
-                    }
-                }
-                console.log(this.dummy.arrowheads)
-            },
-            (o) => {
-                let pathLeft, pathRight;
-
-                if (o.points.length > 2) {
-                    pathRight = o.points.slice(1, o.points.length).map(pt => `(${Math.round(pt[0] + o.x)}, ${-Math.round(pt[1] + o.y)})`).join("--");
-                    pathLeft = o.points.slice(0, 2).map(pt => `(${Math.round(pt[0] + o.x)}, ${-Math.round(pt[1] + o.y)})`).join("--");
-                } else { // ie o.points.length == 2
-                    let midpoint = [0.5*(o.points[0][0] + o.points[1][0]) + o.x, -0.5*(o.points[0][1] + o.points[1][1]) - o.y]
-                    pathLeft = `(${midpoint[0]}, ${midpoint[1]})--(${o.points[0][1] + o.x}, ${-o.points[0][1]-o.y})`
-                    pathRight = `(${midpoint[0]}, ${midpoint[1]})--(${o.points[1][0] + o.x}, ${- o.points[1][1] - o.y})`
-                }
-                this.dummy = `draw(${pathRight}, ${this.getPen(o)}${(o.arrowheads[1] == null) ? "" : (", arrow="+o.arrowheads[1]) });\n`
-                this.dummy += `draw(${pathLeft}, ${this.getPen(o)}${(o.arrowheads[0] == null) ? "" : (", arrow="+o.arrowheads[0]) });\n`
-                // this.dummy = `draw(${testy}, ${this.getPen(o)}, arrow=${o.arrowheads[1]});\n`
-            },
-            (ctx, e) => {
-
-            }
-        )
-        this.addType("freedraw", 
-            (e) => {
-                // e.strokeColor = e.backgroundColor
-                e.backgroundColor = "transparent"
-                e.strokeStyle = "solid"
-                this.types["line"].parse(e)
-                this.dummy.strokeWidth += 4
-            },
-            (o) => {
-                let testy = o.points.map(pt => `(${Math.round(pt[0] + o.x)}, ${-Math.round(pt[1] + o.y)})`).join("..");
-                this.dummy = `draw(${testy}, ${this.getPen(o)});\n`
-            },
-            (ctx, e) => {
-
-            }
-        )
-
-        this.addType("text",
-            (e) => {
-                // e.x += e.width/2
-                // e.y += e.height/2
-                this.default(e)
-                this.dummy.text = e.text
-                this.dummy.fontSize = e.fontSize
-            },
-            (o) => {
-                this.dummy = `label("${o.text}", (${o.x+o.width/2}, ${-o.y-o.height/2}), fontsize(${Math.round(o.fontSize)}pt) + ${this.getPen(o)});\n`
-                // *rotate(${Math.round(o.angle * 180/Math.PI)})
-            },
-            (ctx, e) => {
-                ctx.fillStyle = "black"
-                ctx.fillRect(e.x, e.y, e.width, e.height)
-                ctx.fillText(e.text, e.x, e.y)
-            }
-        )
+    if (!state.logs.length) {
+        ui.logEmpty.hidden = false;
+        return;
     }
 
-    getPen(o) {return `${o.strokeColor}+linewidth(${o.strokeWidth})+${(o.strokeStyle)}`}
+    ui.logEmpty.hidden = true;
+    for (const entry of state.logs) {
+        const details = document.createElement("details");
+        details.className = "log-entry";
+        details.dataset.level = entry.level;
 
-    setCanvasPen(o, ctx) {
-        ctx.lineWidth = o.strokeWidth
-        ctx.fillStyle = o.trueColors.background
-        ctx.strokeStyle = o.trueColors.stroke
-        if (o.strokeStyle === "dashed") {
-            ctx.setLineDash([10, 10])
+        const summary = document.createElement("summary");
+        const dot = document.createElement("span");
+        dot.className = "log-dot";
+        dot.setAttribute("aria-hidden", "true");
+        const message = document.createElement("span");
+        message.className = "log-message";
+        message.textContent = entry.message;
+        const time = document.createElement("time");
+        time.className = "log-time";
+        time.dateTime = entry.timestamp.toISOString();
+        time.textContent = formatTime(entry.timestamp);
+        summary.append(dot, message, time);
+
+        if (entry.detail) {
+            const detail = document.createElement("p");
+            detail.className = "log-detail";
+            detail.textContent = entry.detail;
+            details.append(summary, detail);
         } else {
-            ctx.setLineDash([])
+            details.append(summary);
         }
+        ui.logList.append(details);
+    }
+}
+
+function addLog(level, message, detail = "") {
+    state.logSequence += 1;
+    state.logs.push({
+        id: state.logSequence,
+        level,
+        message,
+        detail,
+        timestamp: new Date(),
+    });
+    renderLogs();
+}
+
+function clearLogs() {
+    state.logs = [];
+    renderLogs();
+}
+
+function updateSourceCount() {
+    ui.sourceCount.textContent = formatCharacterCount(ui.source.value.length);
+}
+
+function markSourceDirty() {
+    state.lastResult = null;
+    setStatus("dirty", "Input changed");
+    setPreviewPill("Input changed", "warning");
+    ui.copy.disabled = true;
+    setOutputMeta("Convert again to refresh the output");
+    updateSourceCount();
+}
+
+function diagnosticDetail(diagnostic) {
+    const location =
+        diagnostic.elementIndex === null ||
+        diagnostic.elementIndex === undefined
+            ? ""
+            : `Element #${diagnostic.elementIndex + 1}`;
+    return [location, diagnostic.code, diagnostic.elementId]
+        .filter(Boolean)
+        .join(" · ");
+}
+
+function rootErrorMessage(error) {
+    if (error instanceof ExcalidrawParseError) return error.message;
+    return error?.message || "The drawing could not be converted.";
+}
+
+function renderPreview(elements) {
+    if (!renderer) return false;
+    try {
+        renderer.render(elements);
+        return true;
+    } catch (error) {
+        setPreviewPill("Preview error", "error");
+        addLog(
+            "error",
+            "The preview could not be rendered.",
+            error?.message || "The code was still generated.",
+        );
+        return false;
+    }
+}
+
+function clearConversionOutput() {
+    state.lastResult = null;
+    ui.outputCode.textContent =
+        "Convert a drawing to see the Asymptote output.";
+    ui.copy.disabled = true;
+    setOutputMeta("No code generated yet");
+    ui.canvasEmpty.classList.remove("is-hidden");
+    if (renderPreview([]) !== false) setPreviewPill("Waiting for data");
+}
+
+function convertDrawing() {
+    const source = ui.source.value.trim();
+    if (!source) {
+        clearConversionOutput();
+        setStatus("error", "Paste JSON first");
+        setPreviewPill("No source", "error");
+        addLog("warning", "Nothing to convert because the source is empty.");
+        return;
     }
 
-    default(e) {
-        console.log(e)
-        this.dummy.type = e.type
-        this.dummy.strokeColor = hexToRgb(e.strokeColor)
-        this.dummy.strokeWidth = e.strokeWidth
-        this.dummy.strokeStyle = e.strokeStyle
-        this.dummy.fillStyle = e.fillStyle
-        this.dummy.closed = !(e.backgroundColor === "transparent")
-        this.dummy.backgroundColor = hexToRgb(e.backgroundColor)
-        if (!this.dummy.closed) {
-            this.dummy.backgroundColor += "+opacity(0.0)"
+    try {
+        const result = convertExcalidraw(source);
+        state.lastResult = result;
+        ui.outputCode.textContent = result.code;
+        ui.copy.disabled = false;
+        setOutputMeta(
+            `${formatLineCount(result.lineCount)} · ${result.stats.converted} element${result.stats.converted === 1 ? "" : "s"} converted`,
+        );
+        const hasWarnings =
+            result.stats.warnings > 0 || result.stats.errors > 0;
+        setStatus(
+            result.stats.errors ? "error" : hasWarnings ? "warning" : "success",
+            hasWarnings ? "Converted with warnings" : "Converted successfully",
+        );
+        ui.canvasEmpty.classList.toggle(
+            "is-hidden",
+            result.elements.length > 0,
+        );
+
+        const previewRendered = renderPreview(result.elements);
+        const skipped = result.stats.skipped;
+        if (previewRendered) {
+            setPreviewPill(
+                `${result.stats.converted} element${result.stats.converted === 1 ? "" : "s"}${skipped ? ` · ${skipped} skipped` : ""}`,
+                skipped || result.stats.warnings ? "warning" : "success",
+            );
         }
-        if (e.strokeColor === "transparent") {
-            this.dummy.strokeWidth = 0
+
+        addLog(
+            hasWarnings ? "warning" : "success",
+            `Converted ${result.stats.converted} of ${result.stats.total} element${result.stats.total === 1 ? "" : "s"}.`,
+            `${formatLineCount(result.lineCount)} of Asymptote generated.${skipped ? ` ${skipped} unsupported or invalid element${skipped === 1 ? "" : "s"} skipped.` : ""}`,
+        );
+        for (const diagnostic of result.diagnostics) {
+            addLog(
+                diagnostic.level,
+                diagnostic.message,
+                diagnosticDetail(diagnostic),
+            );
         }
-        this.dummy.trueColors = {stroke: e.strokeColor, background: e.backgroundColor}
-        this.dummy.x = Math.round(e.x)
-        this.dummy.y = Math.round(e.y)
-        this.dummy.width = Math.round(e.width)
-        this.dummy.height = Math.round(e.height)
-        this.dummy.angle = Math.round(e.angle * 100)/100
-        this.dummy.cx = this.dummy.x + this.dummy.width/2
-        this.dummy.cy = this.dummy.y + this.dummy.height/2
-        this.dummy.cos = Math.cos(this.dummy.angle)
-        this.dummy.sin = Math.sin(this.dummy.angle)
-        this.dummy.opacity = e.opacity/100
-        this.dummy.roundness = (e.roundness != null)
+    } catch (error) {
+        clearConversionOutput();
+        setStatus("error", "Could not parse source");
+        setPreviewPill("Parse error", "error");
+        addLog(
+            "error",
+            rootErrorMessage(error),
+            error instanceof ExcalidrawParseError
+                ? 'Check the JSON syntax and the "elements" array.'
+                : "The converter stopped before producing output.",
+        );
+    }
+}
+
+async function copyCode() {
+    const result = state.lastResult;
+    if (!result?.code) return;
+
+    let copied = false;
+    try {
+        if (navigator.clipboard?.writeText) {
+            await navigator.clipboard.writeText(result.code);
+            copied = true;
+        } else {
+            throw new Error("Clipboard API unavailable");
+        }
+    } catch {
+        const helper = document.createElement("textarea");
+        helper.value = result.code;
+        helper.setAttribute("readonly", "");
+        helper.style.position = "fixed";
+        helper.style.opacity = "0";
+        document.body.append(helper);
+        helper.select();
+        try {
+            copied = document.execCommand("copy");
+        } catch {
+            copied = false;
+        }
+        helper.remove();
     }
 
-    addType(type, callback, asy, canvasDraw) {this.types[type] = {parse: callback, asymptote: asy, canvasDraw: canvasDraw}}
+    if (copied) {
+        addLog(
+            "success",
+            "Asymptote code copied to the clipboard.",
+            `${formatLineCount(result.lineCount)} copied.`,
+        );
+        ui.copy.classList.add("is-copied");
+        ui.copy.querySelector("span:last-child").textContent = "Copied";
+        window.setTimeout(() => {
+            ui.copy.classList.remove("is-copied");
+            ui.copy.querySelector("span:last-child").textContent = "Copy code";
+        }, 1600);
+    } else {
+        addLog(
+            "error",
+            "The code could not be copied automatically.",
+            "Select the code in the output panel and copy it manually.",
+        );
+    }
+}
 
-    parse(data) {
-        data.elements.forEach(element => {
-            if (this.types.hasOwnProperty(element.type)) {
-                this.dummy = {}
-                this.types[element.type].parse.call(this, element)
-                this.elements.push(this.dummy)
-                this.dummy = null
-            } else {
-                console.log(`${element.type} not recognized`)
-            }
+function loadSample() {
+    ui.source.value = JSON.stringify(SAMPLE_DATA, null, 2);
+    updateSourceCount();
+    addLog("info", "Loaded the sample Excalidraw drawing.");
+    convertDrawing();
+}
+
+function clearSource() {
+    ui.source.value = "";
+    markSourceDirty();
+    clearConversionOutput();
+    setStatus("dirty", "Input cleared");
+    setPreviewPill("Waiting for data");
+    addLog("info", "Source input and generated output were cleared.");
+    ui.source.focus();
+}
+
+function setPanelCollapsed(panelName, collapsed) {
+    const panel = document.querySelector(`[data-panel="${panelName}"]`);
+    const toggle = document.querySelector(`[data-panel-toggle="${panelName}"]`);
+    if (!panel || !toggle) return;
+    panel.classList.toggle("is-collapsed", collapsed);
+    toggle.setAttribute("aria-expanded", String(!collapsed));
+    toggle.setAttribute(
+        "aria-label",
+        `${collapsed ? "Expand" : "Collapse"} ${panelName} panel`,
+    );
+    if (panelName === "preview" && !collapsed)
+        renderPreview(state.lastResult?.elements ?? []);
+}
+
+function setAllPanels(collapsed) {
+    for (const panel of document.querySelectorAll("[data-panel]")) {
+        setPanelCollapsed(panel.dataset.panel, collapsed);
+    }
+}
+
+function bindEvents() {
+    ui.source.addEventListener("input", markSourceDirty);
+    ui.source.addEventListener("keydown", (event) => {
+        if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+            event.preventDefault();
+            convertDrawing();
+        }
+    });
+    ui.convert.addEventListener("click", convertDrawing);
+    ui.loadSample.addEventListener("click", loadSample);
+    ui.clearSource.addEventListener("click", clearSource);
+    ui.copy.addEventListener("click", copyCode);
+    ui.clearLogs.addEventListener("click", clearLogs);
+    ui.expandAll.addEventListener("click", () => setAllPanels(false));
+    ui.collapseAll.addEventListener("click", () => setAllPanels(true));
+
+    for (const toggle of document.querySelectorAll("[data-panel-toggle]")) {
+        toggle.addEventListener("click", () => {
+            const panel = document.querySelector(
+                `[data-panel="${toggle.dataset.panelToggle}"]`,
+            );
+            setPanelCollapsed(
+                toggle.dataset.panelToggle,
+                !panel.classList.contains("is-collapsed"),
+            );
         });
-    } 
-
-    toAsymptote() {
-        this.text += "/* Generated by Cloud's Excalidraw to Asymptote */\n"
-        this.elements.forEach(element => {
-            this.dummy = ""
-            this.types[element.type].asymptote(element)
-            this.text += this.dummy
-        })
-        // import roundedpath;
-        // draw(roundedpath((0,0)--(0,10)--(23,10)--(23, 0)--cycle, 4), red);
     }
 
-    draw(ctx) {
-        this.elements.forEach(e => {
-            this.setCanvasPen(e, ctx)
-            this.types[e.type].canvasDraw(ctx, e)
-        })
-    }
+    window.addEventListener("resize", () => {
+        window.clearTimeout(state.resizeTimer);
+        state.resizeTimer = window.setTimeout(() => {
+            renderPreview(state.lastResult?.elements ?? []);
+        }, 120);
+    });
 }
 
-function test () {
-    let context = canvas.getContext("2d")
-    let parser = new ExcalidrawToAsy()
-    parser.init()
-    bruh.onchange = () => {
-        if (bruh.value.trim() === "") {return;}
-        parser.text = ""
-        parser.elements = []
-        parser.parse(JSON.parse(bruh.value))
-        console.log(parser.elements)
-        parser.toAsymptote()
-        console.log(parser.text)
-        parser.draw(context)
-        textDisplayer.textContent = parser.text
-    }
-
+function configurePlatformHint() {
+    const isApple = /Mac|iPhone|iPad|iPod/.test(
+        navigator.platform || navigator.userAgent,
+    );
+    const key = isApple ? "⌘ ↵" : "Ctrl ↵";
+    ui.shortcut.textContent = key;
+    ui.sourceHint.textContent = `Press ${key} to convert`;
 }
 
-test()
+function init() {
+    bindEvents();
+    configurePlatformHint();
+    renderLogs();
+    ui.source.value = JSON.stringify(SAMPLE_DATA, null, 2);
+    updateSourceCount();
+    addLog("info", "Converter ready. The parser runs locally in this browser.");
+    convertDrawing();
+}
+
+init();

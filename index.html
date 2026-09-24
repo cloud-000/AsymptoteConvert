@@ -1,26 +1,298 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>exca</title>
-    <style>
-        #textDisplayer {
-            position: absolute;
-            left: 20px;
-            top: 40px;
-            border: 2px solid black; 
-            width: 200px;
-            max-height: 50px;
-            overflow-y: scroll;
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <meta
+            name="description"
+            content="Convert Excalidraw JSON into clean, copyable Asymptote code."
+        />
+        <title>AsymptoteConvert</title>
+        <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+        <link rel="stylesheet" href="styles.css" />
+    </head>
+    <body>
+        <div class="app-shell">
+            <header class="topbar">
+                <a class="brand" href="." aria-label="AsymptoteConvert home">
+                    <span class="brand-mark" aria-hidden="true">∑</span>
+                    <span>
+                        <span class="brand-name">AsymptoteConvert</span>
+                        <span class="brand-caption"
+                            >Excalidraw → Asymptote</span
+                        >
+                    </span>
+                </a>
+                <div class="topbar-actions" aria-label="Panel controls">
+                    <button class="quiet-button" id="expand-all" type="button">
+                        Expand all
+                    </button>
+                    <button
+                        class="quiet-button"
+                        id="collapse-all"
+                        type="button"
+                    >
+                        Collapse all
+                    </button>
+                </div>
+            </header>
 
-        }
-    </style>
-</head>
-<body style="display: flex; flex-direction: column;">
-<input id="bruh">
-<canvas id="canvas" width="1000" height="1000"></canvas>
-<div id="textDisplayer"></div>
-<script src="script.js"></script>
-</body>
+            <main>
+                <section
+                    class="panel source-panel"
+                    data-panel="source"
+                    aria-labelledby="source-heading"
+                >
+                    <div class="panel-heading">
+                        <div class="heading-copy">
+                            <div class="eyebrow">
+                                <span class="step-number">1</span> Source
+                            </div>
+                            <h1 id="source-heading">
+                                Paste your Excalidraw data
+                            </h1>
+                            <p>
+                                Export a drawing as JSON, paste it below, and
+                                convert it to Asymptote.
+                            </p>
+                        </div>
+                        <div class="heading-actions">
+                            <button
+                                class="secondary-button"
+                                id="load-sample"
+                                type="button"
+                            >
+                                Load sample
+                            </button>
+                            <button
+                                class="icon-button panel-toggle"
+                                type="button"
+                                data-panel-toggle="source"
+                                aria-expanded="true"
+                                aria-controls="source-body"
+                                aria-label="Collapse source panel"
+                            >
+                                <span aria-hidden="true">⌃</span>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="panel-body" id="source-body">
+                        <div class="source-toolbar">
+                            <span
+                                class="input-state"
+                                id="source-state"
+                                role="status"
+                                aria-live="polite"
+                                ><span class="state-dot"></span> Ready</span
+                            >
+                            <span class="source-count" id="source-count"
+                                >0 characters</span
+                            >
+                        </div>
+                        <label class="sr-only" for="source-input"
+                            >Excalidraw JSON source</label
+                        >
+                        <textarea
+                            id="source-input"
+                            spellcheck="false"
+                            autocomplete="off"
+                            autocapitalize="off"
+                            placeholder='{ "type": "excalidraw", "elements": [...] }'
+                        ></textarea>
+                        <div class="source-footer">
+                            <button
+                                class="primary-button"
+                                id="convert-button"
+                                type="button"
+                            >
+                                <span>Convert drawing</span>
+                                <kbd id="shortcut-hint">⌘ ↵</kbd>
+                            </button>
+                            <button
+                                class="text-button"
+                                id="clear-source"
+                                type="button"
+                            >
+                                Clear input
+                            </button>
+                            <span class="shortcut-note" id="source-hint"
+                                >Press ⌘ + Enter to convert</span
+                            >
+                        </div>
+                    </div>
+                </section>
+
+                <div class="workspace-grid">
+                    <section
+                        class="panel preview-panel"
+                        data-panel="preview"
+                        aria-labelledby="preview-heading"
+                    >
+                        <div class="panel-heading compact-heading">
+                            <div class="heading-copy">
+                                <div class="eyebrow">
+                                    <span class="step-number">2</span> Preview
+                                </div>
+                                <h2 id="preview-heading">Canvas preview</h2>
+                            </div>
+                            <div class="heading-actions">
+                                <span class="result-pill" id="preview-pill"
+                                    >Waiting for data</span
+                                >
+                                <button
+                                    class="icon-button panel-toggle"
+                                    type="button"
+                                    data-panel-toggle="preview"
+                                    aria-expanded="true"
+                                    aria-controls="preview-body"
+                                    aria-label="Collapse preview panel"
+                                >
+                                    <span aria-hidden="true">⌃</span>
+                                </button>
+                            </div>
+                        </div>
+                        <div class="panel-body" id="preview-body">
+                            <div class="canvas-wrap" id="canvas-wrap">
+                                <canvas
+                                    id="preview-canvas"
+                                    width="900"
+                                    height="360"
+                                    aria-label="Preview of the converted drawing"
+                                ></canvas>
+                                <div class="canvas-empty" id="canvas-empty">
+                                    <span class="empty-icon" aria-hidden="true"
+                                        >✦</span
+                                    >
+                                    <strong
+                                        >Your preview will appear here</strong
+                                    >
+                                    <span
+                                        >Load the sample or paste a drawing to
+                                        get started.</span
+                                    >
+                                </div>
+                            </div>
+                        </div>
+                    </section>
+
+                    <section
+                        class="panel output-panel"
+                        data-panel="output"
+                        aria-labelledby="output-heading"
+                    >
+                        <div class="panel-heading compact-heading">
+                            <div class="heading-copy">
+                                <div class="eyebrow">
+                                    <span class="step-number">3</span> Output
+                                </div>
+                                <h2 id="output-heading">Asymptote code</h2>
+                            </div>
+                            <div class="heading-actions">
+                                <button
+                                    class="copy-button"
+                                    id="copy-code"
+                                    type="button"
+                                    disabled
+                                >
+                                    <span class="button-icon" aria-hidden="true"
+                                        >⧉</span
+                                    >
+                                    <span>Copy code</span>
+                                </button>
+                                <button
+                                    class="icon-button panel-toggle"
+                                    type="button"
+                                    data-panel-toggle="output"
+                                    aria-expanded="true"
+                                    aria-controls="output-body"
+                                    aria-label="Collapse output panel"
+                                >
+                                    <span aria-hidden="true">⌃</span>
+                                </button>
+                            </div>
+                        </div>
+                        <div class="panel-body" id="output-body">
+                            <div class="code-meta">
+                                <span id="output-meta"
+                                    >No code generated yet</span
+                                >
+                                <span class="code-language">.asy</span>
+                            </div>
+                            <pre
+                                class="code-block"
+                                id="output-block"
+                                tabindex="0"
+                            ><code id="output-code">Convert a drawing to see the Asymptote output.</code></pre>
+                        </div>
+                    </section>
+                </div>
+
+                <section
+                    class="panel logs-panel"
+                    data-panel="logs"
+                    aria-labelledby="logs-heading"
+                >
+                    <div class="panel-heading compact-heading">
+                        <div class="heading-copy">
+                            <div class="eyebrow">
+                                <span class="step-number">4</span> Activity
+                            </div>
+                            <h2 id="logs-heading">Conversion log</h2>
+                        </div>
+                        <div class="heading-actions">
+                            <span class="result-pill" id="log-count"
+                                >0 events</span
+                            >
+                            <button
+                                class="text-button"
+                                id="clear-logs"
+                                type="button"
+                            >
+                                Clear log
+                            </button>
+                            <button
+                                class="icon-button panel-toggle"
+                                type="button"
+                                data-panel-toggle="logs"
+                                aria-expanded="true"
+                                aria-controls="logs-body"
+                                aria-label="Collapse log panel"
+                            >
+                                <span aria-hidden="true">⌃</span>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="panel-body" id="logs-body">
+                        <div
+                            class="log-list"
+                            id="log-list"
+                            aria-live="polite"
+                        ></div>
+                        <div class="log-empty" id="log-empty">
+                            <span class="empty-icon" aria-hidden="true">✓</span>
+                            <span
+                                >No events yet. Conversion details will appear
+                                here.</span
+                            >
+                        </div>
+                    </div>
+                </section>
+            </main>
+
+            <footer class="footer">
+                <span>Runs locally in your browser.</span>
+                <span
+                    >Supports rectangles, ellipses, lines, arrows, freehand
+                    strokes, and text.</span
+                >
+            </footer>
+        </div>
+
+        <noscript>
+            <div class="noscript-message">
+                AsymptoteConvert needs JavaScript enabled to parse drawings.
+            </div>
+        </noscript>
+        <script type="module" src="script.js"></script>
+    </body>
 </html>
